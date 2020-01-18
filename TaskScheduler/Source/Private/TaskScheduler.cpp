@@ -7,51 +7,6 @@
 #include <thread>
 #include <vector>
 
-namespace 
-{
-	void WorkerThread( TaskScheduler* scheduler, Worker* worker )
-	{
-		while ( true )
-		{
-			std::unique_lock<std::mutex> lock( worker->m_lock );
-			worker->m_cv.wait( lock, [&worker]( ) { return worker->m_wakeup.load( ); } );
-			worker->m_wakeup = false;
-
-			while ( true )
-			{
-				if ( scheduler->m_shutdown )
-				{
-					return;
-				}
-
-				TaskGroup* group = nullptr;
-				Task* task = nullptr;
-				for ( std::size_t i = 0; i < scheduler->m_maxTaskGroup; ++i )
-				{
-					group = &scheduler->m_taskGroups[i];
-					if ( group->m_free || group->m_reference == 0 )
-					{
-						continue;
-					}
-
-					std::lock_guard<std::mutex> taskLock( group->m_taskLock );
-					if ( group->m_head < group->m_tasks.size( ) )
-					{
-						task = &group->m_tasks[group->m_head++];
-						break;
-					}
-				}
-
-				if ( task )
-				{
-					task->m_func( task->m_context );
-					--group->m_reference;
-				}
-			}
-		}
-	}
-}
-
 struct TaskGroup
 {
 	std::vector<Task> m_tasks;
@@ -69,6 +24,48 @@ struct Worker
 	std::condition_variable m_cv;
 	std::atomic<bool> m_wakeup;
 };
+
+void WorkerThread( TaskScheduler* scheduler, Worker* worker )
+{
+	while ( true )
+	{
+		std::unique_lock<std::mutex> lock( worker->m_lock );
+		worker->m_cv.wait( lock, [&worker]( ) { return worker->m_wakeup.load( ); } );
+		worker->m_wakeup = false;
+
+		while ( true )
+		{
+			if ( scheduler->m_shutdown )
+			{
+				return;
+			}
+
+			TaskGroup* group = nullptr;
+			Task* task = nullptr;
+			for ( std::size_t i = 0; i < scheduler->m_maxTaskGroup; ++i )
+			{
+				group = &scheduler->m_taskGroups[i];
+				if ( group->m_free || group->m_reference == 0 )
+				{
+					continue;
+				}
+
+				std::lock_guard<std::mutex> taskLock( group->m_taskLock );
+				if ( group->m_head < group->m_tasks.size( ) )
+				{
+					task = &group->m_tasks[group->m_head++];
+					break;
+				}
+			}
+
+			if ( task )
+			{
+				task->m_func( task->m_context );
+				--group->m_reference;
+			}
+		}
+	}
+}
 
 GroupHandle TaskScheduler::GetTaskGroup( std::size_t reserveSize )
 {

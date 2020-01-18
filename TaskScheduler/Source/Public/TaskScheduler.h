@@ -18,6 +18,9 @@ struct Task
 
 struct TaskGroup;
 struct Worker;
+class TaskScheduler;
+
+void WorkerThread( TaskScheduler* scheduler, Worker* worker );
 
 class TaskScheduler
 {
