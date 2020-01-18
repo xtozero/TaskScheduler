@@ -1,5 +1,6 @@
 #include "TaskScheduler.h"
 
+#include <atomic>
 #include <iostream>
 
 int main( )

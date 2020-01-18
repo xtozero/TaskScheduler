@@ -1,14 +1,13 @@
 #ifndef _TASK_SCHEDULER_H_
 #define _TASK_SCHEDULER_H_
 
-#include <atomic>
-#include <mutex>
+#include <cstddef>
 
 using WorkerFunc = void (*)( void* );
 struct GroupHandle
 {
-	size_t m_groupIndex;
-	size_t m_id;
+	std::size_t m_groupIndex;
+	std::size_t m_id;
 };
 
 struct Task
@@ -23,7 +22,7 @@ struct Worker;
 class TaskScheduler
 {
 public:
-	GroupHandle GetTaskGroup( size_t reserveSize );
+	GroupHandle GetTaskGroup( std::size_t reserveSize );
 
 	void Run( GroupHandle handle, WorkerFunc func, void* context );
 
@@ -41,8 +40,8 @@ public:
 
 private:
 	TaskGroup* m_taskGroups = nullptr;
-	size_t m_maxTaskGroup = 4;
-	size_t m_workerCount = 1;
+	std::size_t m_maxTaskGroup = 4;
+	std::size_t m_workerCount = 1;
 	Worker* m_workers = nullptr;
 	volatile bool m_shutdown = false;
 

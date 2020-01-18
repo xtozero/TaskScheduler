@@ -1,15 +1,18 @@
 #include "TaskScheduler.h"
 
+#include <atomic>
 #include <cassert>
+#include <mutex>
+#include <vector>
 
 struct TaskGroup
 {
 	std::vector<Task> m_tasks;
 	std::mutex m_taskLock;
 	std::atomic<bool> m_free;
-	std::atomic<size_t> m_reference;
-	std::atomic<size_t> m_lastId;
-	size_t m_head;
+	std::atomic<std::size_t> m_reference;
+	std::atomic<std::size_t> m_lastId;
+	std::size_t m_head;
 };
 
 struct Worker
@@ -20,9 +23,9 @@ struct Worker
 	std::atomic<bool> m_wakeup;
 };
 
-GroupHandle TaskScheduler::GetTaskGroup( size_t reserveSize )
+GroupHandle TaskScheduler::GetTaskGroup( std::size_t reserveSize )
 {
-	for ( size_t i = 0; i < m_maxTaskGroup; ++i )
+	for ( std::size_t i = 0; i < m_maxTaskGroup; ++i )
 	{
 		TaskGroup& group = m_taskGroups[i];
 		bool expected = true;
@@ -36,7 +39,7 @@ GroupHandle TaskScheduler::GetTaskGroup( size_t reserveSize )
 		}
 	}
 
-	return GroupHandle{ std::numeric_limits<size_t>::max( ), 0 };
+	return GroupHandle{ std::numeric_limits<std::size_t>::max( ), 0 };
 }
 
 void TaskScheduler::Run( GroupHandle handle, WorkerFunc func, void* context )
@@ -57,7 +60,7 @@ void TaskScheduler::Run( GroupHandle handle, WorkerFunc func, void* context )
 	
 	++group.m_reference;
 	
-	for ( size_t i = 0; i < m_workerCount; ++i )
+	for ( std::size_t i = 0; i < m_workerCount; ++i )
 	{
 		m_workers[i].m_wakeup = true;
 		m_workers[i].m_cv.notify_one( );
@@ -110,7 +113,7 @@ void TaskScheduler::Wait( GroupHandle handle )
 
 void TaskScheduler::WaitAll( )
 {
-	for ( size_t i = 0; i < m_maxTaskGroup; ++i )
+	for ( std::size_t i = 0; i < m_maxTaskGroup; ++i )
 	{
 		Wait( GroupHandle{ i, 0 } );
 	}
@@ -133,7 +136,7 @@ TaskScheduler::TaskScheduler( )
 	m_maxTaskGroup = ( std::thread::hardware_concurrency( ) < 1 ) ? 4 : std::thread::hardware_concurrency( ) * 4;
 	m_taskGroups = new TaskGroup[m_maxTaskGroup];
 
-	for ( size_t i = 0; i < m_maxTaskGroup; ++i )
+	for ( std::size_t i = 0; i < m_maxTaskGroup; ++i )
 	{
 		m_taskGroups[i].m_free = true;
 		m_taskGroups[i].m_reference = 0;
@@ -144,7 +147,7 @@ TaskScheduler::TaskScheduler( )
 	m_workerCount = ( std::thread::hardware_concurrency( ) < 1 ) ? 1 : std::thread::hardware_concurrency( ) * 2 + 1;
 	m_workers = new Worker[m_workerCount];
 
-	for ( size_t i = 0; i < m_workerCount; ++i )
+	for ( std::size_t i = 0; i < m_workerCount; ++i )
 	{
 		m_workers[i].m_wakeup = false;
 		m_workers[i].m_thread = std::thread( WorkerThread, this, &m_workers[i] );
@@ -155,7 +158,7 @@ TaskScheduler::~TaskScheduler( )
 {
 	m_shutdown = true;
 
-	for ( size_t i = 0; i < m_workerCount; ++i )
+	for ( std::size_t i = 0; i < m_workerCount; ++i )
 	{
 		Worker& worker = m_workers[i];
 		worker.m_wakeup = true;
@@ -187,7 +190,7 @@ void WorkerThread( TaskScheduler* scheduler, Worker* worker )
 
 			TaskGroup* group = nullptr;
 			Task* task = nullptr;
-			for ( size_t i = 0; i < scheduler->m_maxTaskGroup; ++i )
+			for ( std::size_t i = 0; i < scheduler->m_maxTaskGroup; ++i )
 			{
 				group = &scheduler->m_taskGroups[i];
 				if ( group->m_free || group->m_reference == 0 )
