@@ -9,8 +9,8 @@ set (SOURCE
 
 include_directories(Source/Public)
 
+FIND_PACKAGE (Threads)
+
 add_executable(TaskScheduler ${HEADER} ${SOURCE})
 
-if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
-	target_link_libraries(TaskScheduler ${CMAKE_THREAD_LIBS_INIT})
-endif()
+target_link_libraries(TaskScheduler ${CMAKE_THREAD_LIBS_INIT})
