@@ -41,7 +41,7 @@ void WorkerThread( TaskScheduler* scheduler, Worker* worker )
 			}
 
 			TaskGroup* group = nullptr;
-			Task* task = nullptr;
+			Task task = { nullptr, nullptr };
 			for ( std::size_t i = 0; i < scheduler->m_maxTaskGroup; ++i )
 			{
 				group = &scheduler->m_taskGroups[i];
@@ -53,14 +53,14 @@ void WorkerThread( TaskScheduler* scheduler, Worker* worker )
 				std::lock_guard<std::mutex> taskLock( group->m_taskLock );
 				if ( group->m_head < group->m_tasks.size( ) )
 				{
-					task = &group->m_tasks[group->m_head++];
+					task = group->m_tasks[group->m_head++];
 					break;
 				}
 			}
 
-			if ( task )
+			if ( task.m_func )
 			{
-				task->m_func( task->m_context );
+				task.m_func( task.m_context );
 				--group->m_reference;
 			}
 		}
@@ -76,7 +76,7 @@ GroupHandle TaskScheduler::GetTaskGroup( std::size_t reserveSize )
 		if ( group.m_free.compare_exchange_strong( expected, false ) )
 		{
 			group.m_head = 0;
-			std::lock_guard<std::mutex>( group.m_taskLock );
+			std::lock_guard<std::mutex> taskLock( group.m_taskLock );
 			group.m_tasks.clear( );
 			group.m_tasks.reserve( reserveSize );
 			return GroupHandle{ i, ++group.m_lastId };
@@ -86,19 +86,27 @@ GroupHandle TaskScheduler::GetTaskGroup( std::size_t reserveSize )
 	return GroupHandle{ std::numeric_limits<std::size_t>::max( ), 0 };
 }
 
-void TaskScheduler::Run( GroupHandle handle, WorkerFunc func, void* context )
+bool TaskScheduler::Run( GroupHandle handle, WorkerFunc func, void* context )
 {
 	if ( handle.m_groupIndex >= m_maxTaskGroup )
 	{
-		return;
+		return false;
 	}
 
 	TaskGroup& group = m_taskGroups[handle.m_groupIndex];
 
-	assert( group.m_free.load( ) == false );
+	if ( group.m_free.load( ) )
+	{
+		return false;
+	}
+
+	if ( handle.m_id != group.m_lastId )
+	{
+		return false;
+	}
 
 	{
-		std::lock_guard<std::mutex>( group.m_taskLock );
+		std::lock_guard<std::mutex> taskLock( group.m_taskLock );
 		group.m_tasks.push_back( { func, context } );
 	}
 	
@@ -109,20 +117,22 @@ void TaskScheduler::Run( GroupHandle handle, WorkerFunc func, void* context )
 		m_workers[i].m_wakeup = true;
 		m_workers[i].m_cv.notify_one( );
 	}
+
+	return true;
 }
 
-void TaskScheduler::Wait( GroupHandle handle )
+bool TaskScheduler::Wait( GroupHandle handle )
 {
 	if ( handle.m_groupIndex >= m_maxTaskGroup )
 	{
-		return;
+		return false;
 	}
 
 	TaskGroup& group = m_taskGroups[handle.m_groupIndex];
 	
 	if ( handle.m_id < group.m_lastId )
 	{
-		return;
+		return false;
 	}
 
 	while ( true )
@@ -153,13 +163,14 @@ void TaskScheduler::Wait( GroupHandle handle )
 	}
 
 	group.m_free = true;
+	return true;
 }
 
 void TaskScheduler::WaitAll( )
 {
 	for ( std::size_t i = 0; i < m_maxTaskGroup; ++i )
 	{
-		Wait( GroupHandle{ i, 0 } );
+		Wait( GroupHandle{ i, m_taskGroups[i].m_lastId } );
 	}
 }
 
@@ -177,25 +188,20 @@ bool TaskScheduler::IsComplete( GroupHandle handle ) const
 
 TaskScheduler::TaskScheduler( )
 {
-	m_maxTaskGroup = ( std::thread::hardware_concurrency( ) < 1 ) ? 4 : std::thread::hardware_concurrency( ) * 4;
-	m_taskGroups = new TaskGroup[m_maxTaskGroup];
+	std::size_t workerCount = ( std::thread::hardware_concurrency( ) < 1 ) ? 1 : std::thread::hardware_concurrency( ) * 2 + 1;
+	std::size_t groupCount = ( std::thread::hardware_concurrency( ) < 1 ) ? 4 : std::thread::hardware_concurrency( ) * 4;
+	Initialize( groupCount, workerCount );
+}
 
-	for ( std::size_t i = 0; i < m_maxTaskGroup; ++i )
-	{
-		m_taskGroups[i].m_free = true;
-		m_taskGroups[i].m_reference = 0;
-		m_taskGroups[i].m_head = 0;
-		m_taskGroups[i].m_lastId = 0;
-	}
+TaskScheduler::TaskScheduler( std::size_t workerCount )
+{
+	std::size_t groupCount = ( std::thread::hardware_concurrency( ) < 1 ) ? 4 : std::thread::hardware_concurrency( ) * 4;
+	Initialize( groupCount, workerCount );
+}
 
-	m_workerCount = ( std::thread::hardware_concurrency( ) < 1 ) ? 1 : std::thread::hardware_concurrency( ) * 2 + 1;
-	m_workers = new Worker[m_workerCount];
-
-	for ( std::size_t i = 0; i < m_workerCount; ++i )
-	{
-		m_workers[i].m_wakeup = false;
-		m_workers[i].m_thread = std::thread( WorkerThread, this, &m_workers[i] );
-	}
+TaskScheduler::TaskScheduler( std::size_t groupCount, std::size_t workerCount )
+{
+	Initialize( groupCount, workerCount );
 }
 
 TaskScheduler::~TaskScheduler( )
@@ -215,4 +221,27 @@ TaskScheduler::~TaskScheduler( )
 
 	delete[] m_taskGroups;
 	delete[] m_workers;
+}
+
+void TaskScheduler::Initialize( std::size_t groupCount, std::size_t workerCount )
+{
+	m_maxTaskGroup = groupCount;
+	m_taskGroups = new TaskGroup[m_maxTaskGroup];
+
+	for ( std::size_t i = 0; i < m_maxTaskGroup; ++i )
+	{
+		m_taskGroups[i].m_free = true;
+		m_taskGroups[i].m_reference = 0;
+		m_taskGroups[i].m_head = 0;
+		m_taskGroups[i].m_lastId = 0;
+	}
+
+	m_workerCount = workerCount;
+	m_workers = new Worker[m_workerCount];
+
+	for ( std::size_t i = 0; i < m_workerCount; ++i )
+	{
+		m_workers[i].m_wakeup = false;
+		m_workers[i].m_thread = std::thread( WorkerThread, this, &m_workers[i] );
+	}
 }

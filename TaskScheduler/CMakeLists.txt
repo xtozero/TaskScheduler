@@ -3,14 +3,13 @@ set(HEADER
 )
 
 set (SOURCE
-	"./Source/Private/Main.cpp"
 	"./Source/Private/TaskScheduler.cpp"
 )
 
 include_directories(Source/Public)
 
-FIND_PACKAGE (Threads)
+FIND_PACKAGE(Threads)
 
-add_executable(TaskScheduler ${HEADER} ${SOURCE})
+add_library(TaskScheduler STATIC ${HEADER} ${SOURCE})
 
 target_link_libraries(TaskScheduler ${CMAKE_THREAD_LIBS_INIT})

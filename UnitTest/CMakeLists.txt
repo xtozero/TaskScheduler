@@ -4,12 +4,15 @@ set (SOURCE
 	"./Source/Private/Main.cpp"
 )
  
- enable_testing()
+enable_testing()
  
- include_directories(../ThirdParty/googletest/googletest/include)
+include_directories(../ThirdParty/googletest/googletest/include)
+include_directories(../TaskScheduler/Source/Public)
  
- add_executable(unit_test ${HEADER} ${SOURCE})
+FIND_PACKAGE(Threads)
  
- target_link_libraries(unit_test gtest_main)
+add_executable(unit_test ${HEADER} ${SOURCE})
  
- add_test(NAME unit_test COMMAND unit_test)
+target_link_libraries(unit_test gtest_main ${CMAKE_THREAD_LIBS_INIT} TaskScheduler)
+ 
+add_test(NAME unit_test COMMAND unit_test)
