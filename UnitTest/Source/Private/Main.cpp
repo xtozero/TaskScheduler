@@ -9,12 +9,23 @@ TEST( TaskScheduler, 01_ParallelSum )
 	TaskScheduler taskScheduler;
 	GroupHandle taskGroup = taskScheduler.GetTaskGroup( );
 
+	class AddOneTask
+	{
+	public:
+		void DoTask( )
+		{
+			m_result += 1;
+		}
+
+		AddOneTask( std::atomic<int>& result ) : m_result( result ) {}
+	private:
+		std::atomic<int>& m_result;
+	};
+
 	std::atomic<int> result = 0;
 	for ( int i = 0; i < 1000000; ++i )
 	{
-		taskScheduler.Run( taskGroup,
-			[]( void* ctx ) { *static_cast<std::atomic<int>*>( ctx ) += 1; },
-			&result );
+		taskScheduler.Run( taskGroup, Task<AddOneTask>::Create( result ) );
 	}
 
 	taskScheduler.Wait( taskGroup );
@@ -27,10 +38,15 @@ TEST( TaskScheduler, 02_IsComplete )
 	TaskScheduler taskScheduler;
 	GroupHandle taskGroup = taskScheduler.GetTaskGroup( );
 
+	class NullTask
+	{
+	public:
+		void DoTask( ) { }
+	};
+
 	for ( int i = 0; i < 1000000; ++i )
 	{
-		taskScheduler.Run( taskGroup,
-			[]( void* ) {  }, nullptr );
+		taskScheduler.Run( taskGroup, Task<NullTask>::Create( ) );
 	}
 
 	ASSERT_TRUE( taskScheduler.Wait( taskGroup ) );
@@ -46,8 +62,7 @@ TEST( TaskScheduler, 02_IsComplete )
 
 	for ( int i = 0; i < 1000000; ++i )
 	{
-		taskScheduler.Run( newGroup,
-			[]( void* ) {}, nullptr );
+		taskScheduler.Run( taskGroup, Task<NullTask>::Create( ) );
 	}
 
 	ASSERT_TRUE( taskScheduler.Wait( newGroup ) );
@@ -69,10 +84,15 @@ TEST( TaskScheduler, 03_WaitAll )
 	std::mt19937 mt( rd() );
 	std::uniform_int_distribution<int> uniform( 0, 3 );
 
+	class NullTask
+	{
+	public:
+		void DoTask( ) { }
+	};
+
 	for ( int i = 0; i < 1000000; ++i )
 	{
-		taskScheduler.Run( taskGroup[uniform( mt )],
-			[]( void* ) {}, nullptr );
+		taskScheduler.Run( taskGroup[uniform( mt )], Task<NullTask>::Create( ) );
 	}
 
 	taskScheduler.WaitAll( );
